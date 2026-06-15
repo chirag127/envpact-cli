@@ -156,7 +156,7 @@ Requires the [age](https://github.com/FiloSottile/age) binary.
 | **envpact-cli** | `npx envpact-cli` (this) |
 | envpact-mcp | MCP server for AI agents |
 | envpact (Python) | `pip install envpact` |
-| envpact-action | `chirag127/envpact-action@v1` (GitHub Action) |
+| envpact-action | `chirag127/envpact-action@v0` (GitHub Action) |
 | envpact-vscode | "envpact" in VS Code Marketplace |
 | envpact-dashboard | https://envpact.oriz.in |
 
