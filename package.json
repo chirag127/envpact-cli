@@ -1,0 +1,47 @@
+{
+  "name": "envpact-cli",
+  "version": "0.1.0",
+  "description": "Centralized, serverless secrets manager CLI — one private Git repo, every project, zero infrastructure",
+  "main": "bin/envpact.js",
+  "bin": {
+    "envpact": "./bin/envpact.js"
+  },
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "lint": "node --check bin/envpact.js && for f in lib/*.js; do node --check \"$f\"; done",
+    "start": "node bin/envpact.js"
+  },
+  "keywords": [
+    "secrets",
+    "secrets-manager",
+    "env",
+    "dotenv",
+    "environment-variables",
+    "git",
+    "cli",
+    "envpact",
+    "centralized",
+    "serverless"
+  ],
+  "author": "Chirag Singhal <whyiswhen@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://envpact.oriz.in",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chirag127/envpact-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chirag127/envpact-cli/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ]
+}
