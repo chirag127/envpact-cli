@@ -26,8 +26,10 @@ jobs:
             node --check "$f"
           done
       - name: Test
+        shell: bash
         run: node --test tests/*.test.js
       - name: Smoke test CLI
+        shell: bash
         run: |
           node bin/envpact.js --version
           node bin/envpact.js --help
