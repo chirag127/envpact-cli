@@ -1,6 +1,6 @@
 {
   "name": "envpact-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Centralized, serverless secrets manager CLI — one private Git repo, every project, zero infrastructure",
   "main": "bin/envpact.js",
   "bin": {
