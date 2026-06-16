@@ -94,8 +94,21 @@ function parseArgs(argv) {
     '--vault-url',
     '--vault-repo',
   ]);
+  // AUDIT #15 — allowlist of every recognised flag/short alias. Anything
+  // outside this set is rejected loudly so typos like `--rotate-secret`
+  // can no longer fall through as a truthy `args.rotate_secret`.
+  const known = new Set([...flags, ...valued]);
+  let endOfOptions = false;
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
+    if (endOfOptions) {
+      args._.push(a);
+      continue;
+    }
+    if (a === '--') {
+      endOfOptions = true;
+      continue;
+    }
     if (flags.has(a)) {
       args[a.replace(/^-+/, '').replace(/-/g, '_')] = true;
     } else if (valued.has(a)) {
@@ -108,12 +121,22 @@ function parseArgs(argv) {
       }
     } else if (a.startsWith('--')) {
       const eq = a.indexOf('=');
+      const base = eq > 0 ? a.slice(0, eq) : a;
+      if (!known.has(base)) {
+        throw new Error(`unknown flag: ${a}. See \`envpact --help\`.`);
+      }
       if (eq > 0) {
-        const k = a.slice(2, eq).replace(/-/g, '_');
+        const k = base.slice(2).replace(/-/g, '_');
         args[k] = a.slice(eq + 1);
       } else {
-        args[a.slice(2).replace(/-/g, '_')] = true;
+        args[base.slice(2).replace(/-/g, '_')] = true;
       }
+    } else if (a.startsWith('-') && a.length > 1) {
+      // Short flag — must be in the allowlist (e.g. -g, -v, -h).
+      if (!known.has(a)) {
+        throw new Error(`unknown flag: ${a}. See \`envpact --help\`.`);
+      }
+      args[a.replace(/^-+/, '')] = true;
     } else {
       args._.push(a);
     }
@@ -604,4 +627,8 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { parseArgs };
