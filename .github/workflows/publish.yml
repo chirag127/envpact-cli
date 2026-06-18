@@ -9,8 +9,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write   # for npm provenance
+      contents: write   # for softprops/action-gh-release (creates the GH Release)
+      id-token: write   # for npm provenance attestation
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
