@@ -79,6 +79,9 @@ function parseArgs(argv) {
     '-h',
     '--no-push',
     '--no-pull',
+    '--from-stdin',
+    '--quiet',
+    '-q',
   ]);
   const valued = new Set([
     '--init',
@@ -482,13 +485,34 @@ async function cmdRotate(key, args) {
     throw new Error(`Shared secret not found: ${key}`);
   }
   const refs = findReferencingProjects(vault, key);
-  console.log(`Rotating shared.${key} (used by ${refs.length} reference(s))`);
-  for (const r of refs) {
-    console.log(
-      `  - ${r.project}.${r.key}${r.environment ? ' (' + r.environment + ')' : ''}`
-    );
+  if (!args.quiet) {
+    console.log(`Rotating shared.${key} (used by ${refs.length} reference(s))`);
+    for (const r of refs) {
+      console.log(
+        `  - ${r.project}.${r.key}${r.environment ? ' (' + r.environment + ')' : ''}`
+      );
+    }
   }
-  const newVal = await askSecret(`New value for shared.${key}: `);
+  let newVal;
+  if (args.from_stdin) {
+    // Read full stdin until EOF — piped values come this way. We do NOT
+    // strip a trailing newline aggressively, but we do trim a single
+    // optional trailing \n the way `read` semantics expect.
+    newVal = await new Promise((resolve, reject) => {
+      let data = '';
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', (chunk) => { data += chunk; });
+      process.stdin.on('end', () => resolve(data));
+      process.stdin.on('error', reject);
+    });
+    if (newVal.endsWith('\n')) newVal = newVal.slice(0, -1);
+    if (newVal.endsWith('\r')) newVal = newVal.slice(0, -1);
+    if (!newVal) {
+      throw new Error('--from-stdin received empty value; refusing to rotate.');
+    }
+  } else {
+    newVal = await askSecret(`New value for shared.${key}: `);
+  }
   setSharedSecret(vault, key, newVal);
   saveVault(vault, SECRETS_FILE);
   if (!args.no_push) {
