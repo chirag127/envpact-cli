@@ -264,3 +264,9 @@ Requires the [age](https://github.com/FiloSottile/age) binary.
 ## License
 
 MIT © Chirag Singhal — see [LICENSE](./LICENSE).
+
+## Documentation
+
+- **[Repo docs (`docs/README.md`)](./docs/README.md)** — full API + usage reference for envpact-cli
+- **[Project umbrella site](https://chirag127.github.io/envpact/)** — overview of all envpact components, security model, quick start
+- **[Live dashboard](https://envpact.oriz.in)** — visual vault management
