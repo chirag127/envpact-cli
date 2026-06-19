@@ -139,6 +139,63 @@ timestamps only (no secret values).
 `envpact --push KEY` refuses on `vault_newer` / `both_diverged`.
 Pass `--force` to override.
 
+### Conflict timestamps (UTC + IST)
+
+Every `--pull` / `--push` conflict prints both UTC and IST
+timestamps for the vault and local sides, with `(Recommended —
+newer)` highlighting whichever side is newer (per
+[SHARED_SPEC §1.5](https://github.com/chirag127/envpact/blob/main/_build/specs/SHARED_SPEC.md)).
+The vault is always the authoritative UTC source; IST is computed in
+`Asia/Kolkata` and is independent of your machine's local timezone.
+
+```
+Conflict on KEY = OPENAI_API_KEY (project: my-app)
+
+  Vault:  2026-06-19T07:30:00.000Z
+          → 2026-06-19 13:00:00 IST   (Recommended — newer)
+  Local:  2026-06-19T07:25:00.000Z
+          → 2026-06-19 12:55:00 IST
+
+  status: vault_newer
+  Re-run with --force to overwrite local.
+```
+
+The `(Recommended — newer)` annotation is a hint, not an action —
+you keep full control. Re-run with `--force` to override the refusal.
+
+## Global `.env`
+
+In addition to per-project `.env` files, envpact maintains a single
+global file at `~/.envpact/.env` that mirrors every shared secret in
+the vault — handy for shell scripts, one-off tooling, and any code
+that doesn't have its own `.env.example`.
+
+```bash
+# Regenerate ~/.envpact/.env from ~/.envpact/.env.example.global
+envpact --sync-global
+# stderr: envpact: wrote ~/.envpact/.env (12 keys, 0 encrypted, 0 not in vault)
+```
+
+The owner-maintained template lives at
+`~/.envpact/.env.example.global`. On first `--sync-global` run we
+auto-create it as an alphabetical list of every `shared.*` key. Edit
+the file at any time to reorder, add `# comments`, or omit keys you
+don't want in the global mirror — the byte-faithful writer preserves
+your layout exactly.
+
+| Vault state | Resulting line in `~/.envpact/.env` |
+| :--- | :--- |
+| Plain shared value | `KEY=<value>` (quoted per dotenv rules) |
+| Encrypted (`enc:…`) | `# KEY: encrypted — decrypt via CLI` |
+| Missing from vault | `# KEY: not in vault` |
+
+The mirror is read-only with respect to the vault — there is no
+`--push-global`. Mutate via `envpact --add-shared KEY=VALUE` or the
+dashboard; then re-run `--sync-global` to refresh the file.
+
+The global file is written with mode `0600` (best-effort on
+Windows) and is gitignored by convention — never commit it.
+
 ## Commands
 
 | Command | Action |
@@ -150,6 +207,7 @@ Pass `--force` to override.
 | `envpact --push <KEY>` | Push a single key from `.env` → vault (refuses if vault is newer) |
 | `envpact --status` | Show per-key sync status table |
 | `envpact --force` | Override conflict refusals on `--pull` / `--push` |
+| `envpact --sync-global` | Regenerate `~/.envpact/.env` from `~/.envpact/.env.example.global` |
 | `envpact --github` | Sync resolved secrets to GitHub Actions |
 | `envpact --rotate <KEY>` | Rotate a shared secret interactively |
 | `envpact --list` | List all projects in the vault |

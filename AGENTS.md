@@ -12,14 +12,27 @@ mirror its semantics bit-for-bit.
 
 - **Vault**: private GitHub repo with `secrets.json` (**v3 schema** —
   flat, single-environment, per-key timestamps for conflict
-  detection). See `_build/specs/SHARED_SPEC.md` §1 in the umbrella.
+  detection; **v3.1 UX** layered on top — additive only, no on-disk
+  format change). See `_build/specs/SHARED_SPEC.md` §1 in the
+  umbrella.
 - **Local clone**: `~/.envpact/secrets/`.
+- **Global mirror**: `~/.envpact/.env` (regenerated from
+  `~/.envpact/.env.example.global` via `--sync-global`). Read-only
+  w.r.t. the vault — see `lib/global-env.js` and SHARED_SPEC §1.6.
 - **Resolver**: `lib/resolver.js` — single source of truth for the
   `shared.KEY` reference and v3 entry-shape semantics. Auto-upgrades
   v1/v2 vaults in memory.
 - **Sync**: `lib/sync.js` — per-key pull/push pipeline with
   conflict detection via `.env.example.lock` (a checked-in
-  value-free state sidecar).
+  value-free state sidecar). `formatConflictMessage()` renders the
+  spec §1.5 conflict prompt (UTC + IST dual-render).
+- **Timestamps**: `lib/timestamps.js` — `formatTimestamp(iso) →
+  {utc, ist}` + `newerSide(a, b)`. IST is fixed `Asia/Kolkata`,
+  independent of host TZ.
+- **Byte-faithful writer**: `lib/parser.js`'s `renderEnvFile` walks
+  `.env.example` line-by-line preserving blanks, comments, key order,
+  and trailing-newline state per spec §5. Missing keys surface as
+  `# KEY: unresolved` comments.
 - **Auth**: auto-detected (gh / SSH / HTTPS PAT).
 
 ## Key Files
@@ -29,9 +42,16 @@ mirror its semantics bit-for-bit.
   in-memory upgrade.
 - `lib/vault.js` — load/save/mutate `secrets.json`; v3 entry helpers.
 - `lib/sync.js` — per-key pull/push, conflict detection,
-  `.env.example.lock` I/O.
-- `lib/parser.js` — `.env.example` parsing, `.env` rendering,
-  `parseEnvFileToMap()` for sync.
+  `.env.example.lock` I/O, `formatConflictMessage()` (UTC+IST dual-render).
+- `lib/timestamps.js` — `formatTimestamp(iso)` + `newerSide(a,b)` for
+  every prompt that surfaces a UTC timestamp to a human (spec §1.5).
+- `lib/parser.js` — `.env.example` parsing, `.env` rendering. The
+  `renderEnvFile` writer is byte-faithful when an `exampleContent`
+  string is provided (spec §5).
+- `lib/global-env.js` — `~/.envpact/.env` and
+  `~/.envpact/.env.example.global` management (spec §1.6 / §5.1).
+  `ensureGlobalExample()` auto-bootstraps the template;
+  `generateGlobalEnv()` writes the mirror at mode 0600.
 - `lib/git.js` — clone/pull/commit/push the vault repo.
 - `lib/github.js` — `gh secret set` integration.
 - `lib/age.js` — opt-in age encryption.
