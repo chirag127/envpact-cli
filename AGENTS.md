@@ -10,23 +10,33 @@ mirror its semantics bit-for-bit.
 
 ## Architecture
 
-- **Vault**: private GitHub repo with `secrets.json` (v2 schema).
+- **Vault**: private GitHub repo with `secrets.json` (**v3 schema** —
+  flat, single-environment, per-key timestamps for conflict
+  detection). See `_build/specs/SHARED_SPEC.md` §1 in the umbrella.
 - **Local clone**: `~/.envpact/secrets/`.
 - **Resolver**: `lib/resolver.js` — single source of truth for the
-  `shared.KEY` and per-environment object semantics.
+  `shared.KEY` reference and v3 entry-shape semantics. Auto-upgrades
+  v1/v2 vaults in memory.
+- **Sync**: `lib/sync.js` — per-key pull/push pipeline with
+  conflict detection via `.env.example.lock` (a checked-in
+  value-free state sidecar).
 - **Auth**: auto-detected (gh / SSH / HTTPS PAT).
 
 ## Key Files
 
 - `bin/envpact.js` — CLI entry point and command router.
-- `lib/resolver.js` — vault → resolved secrets transform.
-- `lib/vault.js` — load/save/mutate `secrets.json`.
-- `lib/parser.js` — `.env.example` parsing and `.env` rendering.
+- `lib/resolver.js` — vault → resolved secrets transform; v1/v2 → v3
+  in-memory upgrade.
+- `lib/vault.js` — load/save/mutate `secrets.json`; v3 entry helpers.
+- `lib/sync.js` — per-key pull/push, conflict detection,
+  `.env.example.lock` I/O.
+- `lib/parser.js` — `.env.example` parsing, `.env` rendering,
+  `parseEnvFileToMap()` for sync.
 - `lib/git.js` — clone/pull/commit/push the vault repo.
 - `lib/github.js` — `gh secret set` integration.
 - `lib/age.js` — opt-in age encryption.
 - `lib/prompt.js` — interactive readline prompts.
-- `lib/config.js` — paths and defaults.
+- `lib/config.js` — paths and defaults (v3 schema constants).
 - `tests/*.test.js` — Node native test runner.
 
 ## Conventions
@@ -47,9 +57,9 @@ npm test                # run all tests
 node --test tests/resolver.test.js   # run a specific suite
 ```
 
-Coverage target: ≥80% for `resolver.js`, `parser.js`, `vault.js`.
-Mock the filesystem via `os.tmpdir()`; mock git via `child_process`
-test doubles.
+Coverage target: ≥80% for `resolver.js`, `parser.js`, `vault.js`,
+`sync.js`. Mock the filesystem via `os.tmpdir()`; mock git via
+`child_process` test doubles or by injecting stub Symbols.
 
 ## Adding a New Command
 

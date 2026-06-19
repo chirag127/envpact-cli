@@ -38,12 +38,19 @@ npm install -g envpact-cli
 # 1. Create your private vault (auto via gh CLI)
 npx envpact-cli --init auto
 
-# 2. In any project with a .env.example, generate .env
+# 2. In any project with a .env.example, generate the full .env
 cd my-project
 npx envpact-cli
 # → resolves shared refs, prompts for missing values, writes .env
 
-# 3. Sync secrets to GitHub Actions for CI/CD
+# 3. Sync a single key in either direction
+npx envpact-cli --pull DATABASE_URL    # vault → .env
+npx envpact-cli --push DATABASE_URL    # .env → vault
+
+# 4. Check per-key sync state
+npx envpact-cli --status
+
+# 5. Sync secrets to GitHub Actions for CI/CD
 npx envpact-cli --github
 ```
 
@@ -67,46 +74,82 @@ envpact
 
 ## Vault Schema
 
-`secrets.json` (v2 — supports per-environment values):
+`secrets.json` (v3 — flat, single-environment, per-key timestamps):
 
 ```json
 {
-  "$schema": "https://envpact.oriz.in/schema/v2.json",
-  "version": 2,
+  "$schema": "https://envpact.oriz.in/schema/v3.json",
+  "version": 3,
   "shared": {
-    "OPENAI_API_KEY": "sk-proj-…",
-    "DATABASE_URL_PROD": "postgresql://…"
+    "OPENAI_API_KEY": {
+      "value": "sk-proj-…",
+      "_modified_at": "2026-06-19T10:00:00.000Z"
+    }
   },
   "projects": {
     "my-app": {
-      "_default_env": "production",
-      "OPENAI_API_KEY": "shared.OPENAI_API_KEY",
-      "PORT": "3000",
+      "OPENAI_API_KEY": {
+        "value": "shared.OPENAI_API_KEY",
+        "_modified_at": "2026-06-19T10:00:00.000Z"
+      },
+      "PORT": {
+        "value": "3000",
+        "_modified_at": "2026-06-19T10:00:00.000Z"
+      },
       "DATABASE_URL": {
-        "development": "postgres://localhost/myapp_dev",
-        "production": "shared.DATABASE_URL_PROD"
+        "value": "postgresql://localhost/myapp",
+        "_modified_at": "2026-06-19T10:00:00.000Z"
       }
     }
   }
 }
 ```
 
-**Resolution rules** (canonical, see [SHARED_SPEC](../envpact/blob/main/_build/specs/SHARED_SPEC.md) §1):
+**Resolution rules** (canonical, see [SHARED_SPEC §1](../envpact/blob/main/_build/specs/SHARED_SPEC.md)):
 
-- A string starting with `shared.` is looked up in the `shared` block.
-- A nested object selects the value for the requested environment
-  (with fallback to a `default` key if defined).
-- Encrypted values (prefixed `enc:`) are decrypted using your
-  local age key (`~/.envpact/age.key`) at resolution time.
+- Every leaf is an entry object: `{ value, _modified_at }`.
+- A `value` starting with `shared.` is looked up one level in the
+  `shared` block.
+- A `value` starting with `enc:` is decrypted using your local age
+  key (`~/.envpact/age.key`) at resolution time.
+- There are NO per-environment objects in v3. One project, one set
+  of values. Use multiple project names (e.g. `my-app-prod` /
+  `my-app-dev`) or multiple vaults for environment isolation.
+
+v1 (flat-string) and v2 (per-environment) vaults are auto-upgraded
+in memory on read — a loud warning is logged because the per-env
+flattening is lossy.
+
+## Per-Key Sync (pull / push / status)
+
+The CLI tracks per-key sync state in `.env.example.lock`, a small
+JSON sidecar checked in alongside `.env.example`. It contains
+timestamps only (no secret values).
+
+| State | Meaning |
+| :--- | :--- |
+| `synced` | Local matches vault, lock matches vault |
+| `local_newer` | User edited `.env` since last sync |
+| `vault_newer` | Vault advanced since last sync |
+| `both_diverged` | Local AND vault changed since last sync |
+| `local_only` | Key in `.env`, absent from vault |
+| `vault_only` | Key in vault, absent from `.env` |
+
+`envpact --pull KEY` refuses on `local_newer` / `both_diverged`;
+`envpact --push KEY` refuses on `vault_newer` / `both_diverged`.
+Pass `--force` to override.
 
 ## Commands
 
 | Command | Action |
 | :--- | :--- |
-| `envpact` | Generate `.env` for the current project |
+| `envpact` | Generate full `.env` for the current project from the vault |
 | `envpact --init auto` | Create vault repo + clone via gh CLI |
 | `envpact --init <git-url>` | Clone an existing vault repo |
-| `envpact --env staging` | Use the `staging` environment |
+| `envpact --pull <KEY>` | Pull a single key from vault → `.env` (refuses if local is newer) |
+| `envpact --push <KEY>` | Push a single key from `.env` → vault (refuses if vault is newer) |
+| `envpact --status` | Show per-key sync status table |
+| `envpact --force` | Override conflict refusals on `--pull` / `--push` |
 | `envpact --github` | Sync resolved secrets to GitHub Actions |
 | `envpact --rotate <KEY>` | Rotate a shared secret interactively |
 | `envpact --list` | List all projects in the vault |
