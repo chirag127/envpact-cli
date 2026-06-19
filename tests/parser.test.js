@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const {
   parseEnvContent,
+  parseEnvFileToMap,
   renderEnvFile,
   formatValue,
   writeEnvFileAtomic,
@@ -67,4 +68,26 @@ test('ensureGitignoreCovers — adds when missing, idempotent', () => {
   assert.equal(a, true);
   assert.equal(b, false);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('parseEnvFileToMap — returns flat KEY=value map', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'envpact-test-'));
+  const f = path.join(dir, '.env');
+  fs.writeFileSync(f, 'A=1\nB=hello\n');
+  try {
+    const map = parseEnvFileToMap(f);
+    assert.deepEqual(map, { A: '1', B: 'hello' });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('parseEnvFileToMap — missing file returns empty map', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'envpact-test-'));
+  try {
+    const map = parseEnvFileToMap(path.join(dir, 'nope'));
+    assert.deepEqual(map, {});
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
