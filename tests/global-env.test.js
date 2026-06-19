@@ -1,0 +1,201 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const {
+  globalExamplePath,
+  globalEnvPath,
+  ensureGlobalExample,
+  generateGlobalEnv,
+  renderGlobalBody,
+} = require('../lib/global-env');
+
+// ---------------------------------------------------------------
+// Sandbox harness — point USERPROFILE/HOME at a fresh tmpdir so the
+// generator writes inside the test directory, never the user's real
+// ~/.envpact.
+// ---------------------------------------------------------------
+
+function withSandbox(fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'envpact-global-'));
+  const orig = {
+    USERPROFILE: process.env.USERPROFILE,
+    HOME: process.env.HOME,
+  };
+  process.env.USERPROFILE = dir;
+  process.env.HOME = dir;
+  try {
+    return fn(dir);
+  } finally {
+    if (orig.USERPROFILE === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = orig.USERPROFILE;
+    if (orig.HOME === undefined) delete process.env.HOME;
+    else process.env.HOME = orig.HOME;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function makeVault(shared = {}) {
+  const out = { version: 3, shared: {}, projects: {} };
+  for (const [k, v] of Object.entries(shared)) {
+    out.shared[k] = {
+      value: v,
+      _modified_at: '2026-06-19T07:00:00.000Z',
+    };
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------
+
+test('globalExamplePath/globalEnvPath — under ~/.envpact', () => {
+  withSandbox((dir) => {
+    assert.equal(globalExamplePath(), path.join(dir, '.envpact', '.env.example.global'));
+    assert.equal(globalEnvPath(), path.join(dir, '.envpact', '.env'));
+  });
+});
+
+// ---------------------------------------------------------------
+// ensureGlobalExample
+// ---------------------------------------------------------------
+
+test('ensureGlobalExample — creates alphabetical key list on first run', () => {
+  withSandbox((dir) => {
+    const vault = makeVault({ ZED: 'z', ALPHA: 'a', MID: 'm' });
+    const created = ensureGlobalExample(vault);
+    assert.equal(created, true);
+    const file = path.join(dir, '.envpact', '.env.example.global');
+    const content = fs.readFileSync(file, 'utf8');
+    assert.equal(content, 'ALPHA=\nMID=\nZED=\n');
+  });
+});
+
+test('ensureGlobalExample — empty shared block writes empty file (no trailing newline)', () => {
+  withSandbox(() => {
+    const created = ensureGlobalExample(makeVault({}));
+    assert.equal(created, true);
+    const content = fs.readFileSync(globalExamplePath(), 'utf8');
+    assert.equal(content, '');
+  });
+});
+
+test('ensureGlobalExample — idempotent: existing file untouched', () => {
+  withSandbox(() => {
+    fs.mkdirSync(path.dirname(globalExamplePath()), { recursive: true });
+    fs.writeFileSync(globalExamplePath(), '# my custom layout\nFOO=\n');
+    const created = ensureGlobalExample(makeVault({ BAR: 'b' }));
+    assert.equal(created, false);
+    const content = fs.readFileSync(globalExamplePath(), 'utf8');
+    assert.equal(content, '# my custom layout\nFOO=\n');
+  });
+});
+
+// ---------------------------------------------------------------
+// renderGlobalBody — encrypted / not-in-vault classification
+// ---------------------------------------------------------------
+
+test('renderGlobalBody — plain values resolve, encrypted/missing become comments', () => {
+  const example = '# Section\nA=\nB=\nC=\nD=\n';
+  const vault = {
+    version: 3,
+    shared: {
+      A: { value: 'plain-a', _modified_at: 't' },
+      B: { value: 'enc:abc==', _modified_at: 't' },
+      // C is absent; D has whitespace requiring quoting.
+      D: { value: 'has space', _modified_at: 't' },
+    },
+    projects: {},
+  };
+  const r = renderGlobalBody(example, vault);
+  assert.equal(
+    r.body,
+    '# Section\nA=plain-a\n# B: encrypted — decrypt via CLI\n# C: not in vault\nD="has space"\n'
+  );
+  assert.equal(r.resolved_count, 2);
+  assert.deepEqual(r.encrypted, ['B']);
+  assert.deepEqual(r.not_in_vault, ['C']);
+});
+
+// ---------------------------------------------------------------
+// generateGlobalEnv — full file with header
+// ---------------------------------------------------------------
+
+test('generateGlobalEnv — auto-creates example, writes mirror with header', () => {
+  withSandbox((dir) => {
+    const vault = makeVault({ DB: 'postgres://x', PORT: '3000' });
+    const r = generateGlobalEnv(vault);
+    assert.equal(r.generated_global_example, true);
+    assert.equal(r.resolved_count, 2);
+    assert.deepEqual(r.encrypted, []);
+    assert.deepEqual(r.not_in_vault, []);
+    const out = fs.readFileSync(path.join(dir, '.envpact', '.env'), 'utf8');
+    const lines = out.split('\n');
+    assert.match(lines[0], /^# Generated by envpact \(global\) on /);
+    assert.equal(lines[1], '# DO NOT COMMIT — managed by envpact');
+    // Body — alphabetical key order from auto-generated example.
+    assert.ok(out.includes('DB=postgres://x'));
+    assert.ok(out.includes('PORT=3000'));
+  });
+});
+
+test('generateGlobalEnv — existing example is honoured (key order from template)', () => {
+  withSandbox((dir) => {
+    const exFile = path.join(dir, '.envpact', '.env.example.global');
+    fs.mkdirSync(path.dirname(exFile), { recursive: true });
+    fs.writeFileSync(exFile, '# custom\nB=\nA=\n');
+    const vault = makeVault({ A: 'one', B: 'two' });
+    const r = generateGlobalEnv(vault);
+    assert.equal(r.generated_global_example, false);
+    const out = fs.readFileSync(globalEnvPath(), 'utf8');
+    // Body order matches template: B then A.
+    const body = out.split('\n').filter((l) => !l.startsWith('# Generated') && !l.startsWith('# DO NOT')).join('\n');
+    assert.ok(body.indexOf('B=two') < body.indexOf('A=one'));
+  });
+});
+
+test('generateGlobalEnv — encrypted/missing surfaces in result', () => {
+  withSandbox(() => {
+    const exFile = globalExamplePath();
+    fs.mkdirSync(path.dirname(exFile), { recursive: true });
+    fs.writeFileSync(exFile, 'PLAIN=\nSECRET=\nGONE=\n');
+    const vault = {
+      version: 3,
+      shared: {
+        PLAIN: { value: 'p', _modified_at: 't' },
+        SECRET: { value: 'enc:zzz', _modified_at: 't' },
+      },
+      projects: {},
+    };
+    const r = generateGlobalEnv(vault);
+    assert.equal(r.resolved_count, 1);
+    assert.deepEqual(r.encrypted, ['SECRET']);
+    assert.deepEqual(r.not_in_vault, ['GONE']);
+    const out = fs.readFileSync(globalEnvPath(), 'utf8');
+    assert.ok(out.includes('PLAIN=p'));
+    assert.ok(out.includes('# SECRET: encrypted — decrypt via CLI'));
+    assert.ok(out.includes('# GONE: not in vault'));
+  });
+});
+
+test('generateGlobalEnv — atomic write leaves no .tmp file', () => {
+  withSandbox((dir) => {
+    generateGlobalEnv(makeVault({ K: 'v' }));
+    const entries = fs.readdirSync(path.join(dir, '.envpact'));
+    assert.ok(!entries.some((e) => e.includes('.tmp.')));
+  });
+});
+
+test('generateGlobalEnv — best-effort 0600 mode (POSIX only)', () => {
+  if (process.platform === 'win32') return; // skip on Windows
+  withSandbox(() => {
+    generateGlobalEnv(makeVault({ K: 'v' }));
+    const stat = fs.statSync(globalEnvPath());
+    assert.equal(stat.mode & 0o777, 0o600);
+  });
+});

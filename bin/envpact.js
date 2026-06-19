@@ -404,7 +404,19 @@ async function cmdGenerate(args) {
   const orderedKeys = requiredKeys.length
     ? requiredKeys
     : Object.keys(result.resolved);
-  const content = renderEnvFile(orderedKeys, result.resolved, { project });
+  // Read the .env.example contents so `renderEnvFile` can mirror it
+  // byte-faithfully (SHARED_SPEC §5). When the example is missing we
+  // fall through to legacy mode by leaving exampleContent undefined.
+  let exampleContent;
+  try {
+    exampleContent = fs.readFileSync(envExamplePath, 'utf8');
+  } catch (_e) {
+    exampleContent = undefined;
+  }
+  const content = renderEnvFile(orderedKeys, result.resolved, {
+    project,
+    exampleContent,
+  });
   writeEnvFileAtomic(outputPath, content);
   ensureGitignoreCovers(cwd, '.env');
   console.log(
@@ -509,7 +521,20 @@ async function cmdPull(args) {
   const orderedWithKey = orderedKeys.includes(key)
     ? orderedKeys
     : [...orderedKeys, key];
-  const content = renderEnvFile(orderedWithKey, valueMap, { project });
+  // Mirror .env.example byte-faithfully when we have it (§5). The
+  // `--pull` path only rewrites a single key, so the body emitter
+  // still walks every example line — the unchanged keys keep their
+  // existing values from `valueMap`.
+  let exampleContent;
+  try {
+    exampleContent = fs.readFileSync(envExamplePath, 'utf8');
+  } catch (_e) {
+    exampleContent = undefined;
+  }
+  const content = renderEnvFile(orderedWithKey, valueMap, {
+    project,
+    exampleContent,
+  });
   writeEnvFileAtomic(outputPath, content);
   ensureGitignoreCovers(cwd, '.env');
 
