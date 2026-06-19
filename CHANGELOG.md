@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] - 2026-06-19
+
+### Added
+
+- **`--init` confirmation prompt** asks "envpact will use `<you>/envpact-secrets` for your vault — Continue?" before creating anything. The whole envpact security model rests on "the vault you're touching is your own private repo, signed in as you" — surfacing that explicitly at init time means a misconfigured `gh` (signed in as a different account, organisation impersonation) shows the wrong username and the user bails out before we mutate any GitHub state.
+- **`--yes` / `-y` flag** skips the confirmation for non-interactive CI runs.
+
+### Changed
+
+- `cmdInit(arg, opts)` now takes an `opts.yes` flag.
+
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

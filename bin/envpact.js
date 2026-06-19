@@ -99,6 +99,8 @@ function parseArgs(argv) {
     '--status',
     '--force',
     '--sync-global',
+    '--yes',
+    '-y',
   ]);
   const valued = new Set([
     '--init',
@@ -240,7 +242,7 @@ function saveLocalConfig(cfg) {
 // init — clone vault or create-then-clone via gh
 // ---------------------------------------------------------------
 
-async function cmdInit(arg) {
+async function cmdInit(arg, opts = {}) {
   if (fs.existsSync(SECRETS_DIR)) {
     console.log(`Vault already initialised at ${SECRETS_DIR}`);
     return;
@@ -257,6 +259,30 @@ async function cmdInit(arg) {
       encoding: 'utf8',
     }).trim();
     repoSlug = `${ghUser}/envpact-secrets`;
+
+    // Defence-in-depth confirmation. The whole envpact security model
+    // rests on "the vault you're touching is your own private repo,
+    // signed-in as you" — so we surface that fact at init time and
+    // require explicit Y/n. If gh is somehow misconfigured (signed in
+    // as a different account, organisation impersonation, etc.) the
+    // user sees the wrong username and bails out before we create
+    // anything. Skippable with --yes for non-interactive CI runs.
+    if (isInteractive() && !opts.yes) {
+      console.log('');
+      console.log(`envpact will use this vault repo for your secrets:`);
+      console.log(`    ${repoSlug}`);
+      console.log(`  (will be created as a PRIVATE repo on YOUR GitHub account.)`);
+      console.log(`  Anyone reading these secrets does so as you. envpact has`);
+      console.log(`  no server, no database, no shared storage — your token`);
+      console.log(`  and your data never leave your machine and your GitHub.`);
+      console.log('');
+      const ok = await confirm(`Continue with ${repoSlug}?`, true);
+      if (!ok) {
+        console.log('Cancelled. Re-run with --init <git-url> to use a different repo.');
+        return;
+      }
+    }
+
     console.log(`Creating private repo ${repoSlug}…`);
     try {
       ensureRepoExistsViaGh(repoSlug, true);
@@ -899,7 +925,7 @@ async function main() {
   try {
     if ('init' in args) {
       const arg = typeof args.init === 'string' ? args.init : 'auto';
-      return await cmdInit(arg);
+      return await cmdInit(arg, { yes: !!(args.yes || args.y) });
     }
 
     if (args.vault_pull) {
