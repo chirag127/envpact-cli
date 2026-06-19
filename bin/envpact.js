@@ -54,6 +54,7 @@ const {
   pullKey,
   pushKey,
   resolveVaultEntry,
+  formatConflictMessage,
   SyncConflictError,
 } = require('../lib/sync');
 const {
@@ -68,6 +69,7 @@ const {
 const { ask, askSecret, confirm, isInteractive } = require('../lib/prompt');
 const githubSync = require('../lib/github');
 const ageMod = require('../lib/age');
+const { generateGlobalEnv, ensureGlobalExample } = require('../lib/global-env');
 
 const VERSION = require('../package.json').version;
 
@@ -96,6 +98,7 @@ function parseArgs(argv) {
     '-q',
     '--status',
     '--force',
+    '--sync-global',
   ]);
   const valued = new Set([
     '--init',
@@ -197,6 +200,9 @@ Usage:
   --vault-push               Push pending vault git changes.
   --no-pull                  Skip auto-pull this run.
   --no-push                  Skip auto-push this run.
+  --sync-global              Regenerate ~/.envpact/.env from
+                              ~/.envpact/.env.example.global (creates
+                              the example file on first run).
   --from-stdin               Read --rotate / --push value from stdin.
   -q, --quiet                Suppress per-reference progress dump.
   -v, --version              Print version.
@@ -492,8 +498,19 @@ async function cmdPull(args) {
     });
   } catch (e) {
     if (e instanceof SyncConflictError) {
+      // Per §1.5, render BOTH UTC and IST timestamps for vault and
+      // local sides with the newer one labelled (Recommended — newer).
+      const vaultEntry = resolveVaultEntry(vault, project, key);
+      const lockEntry = lock && lock.keys ? lock.keys[key] : undefined;
       console.error(
-        `envpact: refusing to pull ${key} (${e.status}). Re-run with --force to overwrite local.`
+        formatConflictMessage({
+          key,
+          project,
+          status: e.status,
+          vaultIso: vaultEntry ? vaultEntry._modified_at : undefined,
+          localIso: lockEntry ? lockEntry.synced_at : undefined,
+          direction: 'pull',
+        })
       );
       process.exit(2);
     }
@@ -586,8 +603,19 @@ async function cmdPush(args) {
     });
   } catch (e) {
     if (e instanceof SyncConflictError) {
+      const vaultEntry = (vault.projects || {})[project]
+        ? vault.projects[project][key]
+        : undefined;
+      const lockEntry = lock && lock.keys ? lock.keys[key] : undefined;
       console.error(
-        `envpact: refusing to push ${key} (${e.status}). Re-run with --force to overwrite vault.`
+        formatConflictMessage({
+          key,
+          project,
+          status: e.status,
+          vaultIso: vaultEntry ? vaultEntry._modified_at : undefined,
+          localIso: lockEntry ? lockEntry.synced_at : undefined,
+          direction: 'push',
+        })
       );
       process.exit(2);
     }
@@ -832,6 +860,33 @@ function cmdDecrypt(key, args) {
 }
 
 // ---------------------------------------------------------------
+// --sync-global — regenerate ~/.envpact/.env from
+// ~/.envpact/.env.example.global per SHARED_SPEC §1.6.
+// ---------------------------------------------------------------
+
+function cmdSyncGlobal(args) {
+  if (!fs.existsSync(SECRETS_FILE)) {
+    throw new Error(
+      'No vault configured. Run `envpact --init <git-url>` or `envpact --init auto`.'
+    );
+  }
+  if (!args.no_pull) {
+    const r = pull(SECRETS_DIR);
+    if (!r.ok) {
+      console.warn(`  ! vault pull warning: ${r.stderr.split('\n')[0]}`);
+    }
+  }
+  const vault = loadVault(SECRETS_FILE);
+  ensureGlobalExample(vault);
+  const r = generateGlobalEnv(vault);
+  process.stderr.write(
+    `envpact: wrote ${r.output_path} ` +
+      `(${r.resolved_count} keys, ${r.encrypted.length} encrypted, ` +
+      `${r.not_in_vault.length} not in vault)\n`
+  );
+}
+
+// ---------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------
 
@@ -860,6 +915,8 @@ async function main() {
 
     if (args.list) return cmdList();
     if (args.list_shared) return cmdListShared();
+
+    if (args.sync_global) return cmdSyncGlobal(args);
 
     if (args.pull && typeof args.pull === 'string') {
       return await cmdPull(args);

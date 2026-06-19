@@ -12,6 +12,7 @@ const {
   getKeyStatus,
   pullKey,
   pushKey,
+  formatConflictMessage,
   SyncConflictError,
   LOCK_VERSION,
 } = require('../lib/sync');
@@ -376,4 +377,77 @@ test('loadLock — corrupt JSON throws', () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ------------------------------------------------------------
+// formatConflictMessage — UTC + IST dual-render with newer label
+// ------------------------------------------------------------
+
+test('formatConflictMessage — vault newer is labelled (Recommended — newer)', () => {
+  const msg = formatConflictMessage({
+    key: 'OPENAI_API_KEY',
+    project: 'my-app',
+    status: 'vault_newer',
+    vaultIso: '2026-06-19T07:30:00.000Z',
+    localIso: '2026-06-19T07:25:00.000Z',
+    direction: 'pull',
+  });
+  assert.ok(msg.includes('Conflict on KEY = OPENAI_API_KEY (project: my-app)'));
+  // Both UTC strings appear verbatim.
+  assert.ok(msg.includes('2026-06-19T07:30:00.000Z'));
+  assert.ok(msg.includes('2026-06-19T07:25:00.000Z'));
+  // Both IST strings appear.
+  assert.ok(msg.includes('2026-06-19 13:00:00 IST'));
+  assert.ok(msg.includes('2026-06-19 12:55:00 IST'));
+  // Recommended label is on the vault's IST line (vault is newer).
+  const istLines = msg.split('\n').filter((l) => l.includes('IST'));
+  const vaultIstLine = istLines.find((l) => l.includes('13:00:00'));
+  const localIstLine = istLines.find((l) => l.includes('12:55:00'));
+  assert.match(vaultIstLine, /\(Recommended — newer\)/);
+  assert.doesNotMatch(localIstLine, /\(Recommended — newer\)/);
+  // Pull-direction hint surfaces.
+  assert.ok(msg.includes('--force to overwrite local'));
+});
+
+test('formatConflictMessage — local newer flips the label', () => {
+  const msg = formatConflictMessage({
+    key: 'K',
+    project: 'p',
+    status: 'local_newer',
+    vaultIso: '2026-06-19T07:00:00.000Z',
+    localIso: '2026-06-19T07:30:00.000Z',
+    direction: 'push',
+  });
+  const istLines = msg.split('\n').filter((l) => l.includes('IST'));
+  const localIstLine = istLines.find((l) => l.includes('13:00:00'));
+  const vaultIstLine = istLines.find((l) => l.includes('12:30:00'));
+  assert.match(localIstLine, /\(Recommended — newer\)/);
+  assert.doesNotMatch(vaultIstLine, /\(Recommended — newer\)/);
+  assert.ok(msg.includes('--force to overwrite vault'));
+});
+
+test('formatConflictMessage — equal timestamps render no label', () => {
+  const msg = formatConflictMessage({
+    key: 'K',
+    project: 'p',
+    status: 'both_diverged',
+    vaultIso: '2026-06-19T07:00:00.000Z',
+    localIso: '2026-06-19T07:00:00.000Z',
+    direction: 'pull',
+  });
+  assert.doesNotMatch(msg, /\(Recommended — newer\)/);
+});
+
+test('formatConflictMessage — handles missing local timestamp', () => {
+  const msg = formatConflictMessage({
+    key: 'K',
+    project: 'p',
+    status: 'vault_only',
+    vaultIso: '2026-06-19T07:00:00.000Z',
+    localIso: undefined,
+    direction: 'pull',
+  });
+  assert.ok(msg.includes('no recorded sync timestamp'));
+  // No crash, no Recommended label (only one side known).
+  assert.doesNotMatch(msg, /\(Recommended — newer\)/);
 });
